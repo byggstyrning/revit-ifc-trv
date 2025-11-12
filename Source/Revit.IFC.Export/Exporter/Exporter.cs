@@ -1564,7 +1564,11 @@ namespace Revit.IFC.Export.Exporter
                   // Are nested IfcFacilityParts more common/needed, or is that an OK limitation for Revit to only
                   // have one level supported?
                   // Do we need to sort by elevation, even though elevation is only for building stories?
-                  string predefinedType = null;
+                  // Get predefined type: first try built-in IFC_EXPORT_PREDEFINEDTYPE parameter (standard Revit way),
+                  // then fall back to custom parameter override if needed
+                  string predefinedType = ExporterUtil.GetExportTypeFromTypeParameter(level, null);
+                  if (string.IsNullOrWhiteSpace(predefinedType))
+                     predefinedType = NamingUtil.GetOverrideStringValue(level, "IfcBridgePart.PredefinedType", null);
                   IFCAnyHandle facilityPart = CreateFacilityPart(exporterIFC, level, bsObjectType, placement, 
                      ifcComposition, elevation, predefinedType);
 
@@ -1941,7 +1945,11 @@ namespace Revit.IFC.Export.Exporter
             RelateLevels(exporterIFC, document);
 
             IFCAnyHandle defContainerObjectPlacement = IFCAnyHandleUtil.GetObjectPlacement(siteOrFacilityHnd);
-            Transform defContainerTrf = ExporterUtil.GetTotalTransformFromLocalPlacement(defContainerObjectPlacement);
+            Transform defContainerTrf = Transform.Identity;
+            if (!IFCAnyHandleUtil.IsNullOrHasNoValue(defContainerObjectPlacement))
+            {
+               defContainerTrf = ExporterUtil.GetTotalTransformFromLocalPlacement(defContainerObjectPlacement);
+            }
             Transform defContainerInvTrf = defContainerTrf.Inverse;
 
             // create an association between the IfcBuilding and building elements with no other containment.

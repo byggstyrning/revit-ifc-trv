@@ -2119,7 +2119,16 @@ namespace Revit.IFC.Export.Toolkit
          string description = NamingUtil.GetDescriptionOverride(level, null);
          string longName = NamingUtil.GetLongNameOverride(level, level.Name);
 
-         IFCAnyHandleUtil.SetAttribute(bridgePart, "PredefinedType", predefinedType);
+         // Set PredefinedType only if it's not null or empty (optional attribute)
+         if (!string.IsNullOrWhiteSpace(predefinedType))
+            IFCAnyHandleUtil.SetAttribute(bridgePart, "PredefinedType", predefinedType);
+         
+         // UsageType is required for IfcBridgePart - set default to NOTDEFINED if not provided
+         string usageType = NamingUtil.GetOverrideStringValue(level, "IfcBridgePart.UsageType", null);
+         if (string.IsNullOrWhiteSpace(usageType))
+            usageType = "NOTDEFINED";
+         IFCAnyHandleUtil.SetAttribute(bridgePart, "UsageType", usageType);
+         
          SetFacilityPart(bridgePart, level, guid, ownerHistory, name, description, objectType, objectPlacement, null, longName, compositionType);
          return bridgePart;
       }
@@ -3661,6 +3670,14 @@ namespace Revit.IFC.Export.Toolkit
          IFCAnyHandle axis2Placement3D = CreateInstance(file, IFCEntityType.IfcAxis2Placement3D, null);
          IFCAnyHandleUtil.SetAttribute(axis2Placement3D, "Axis", axis);
          IFCAnyHandleUtil.SetAttribute(axis2Placement3D, "RefDirection", refDirection);
+         
+         // Location is required for IfcAxis2Placement3D - create default origin (0,0,0) if null
+         if (IFCAnyHandleUtil.IsNullOrHasNoValue(location))
+         {
+            List<double> defaultOrigin = new List<double> { 0.0, 0.0, 0.0 };
+            location = CreateCartesianPoint(file, defaultOrigin);
+         }
+         
          SetPlacement(axis2Placement3D, location);
          return axis2Placement3D;
       }

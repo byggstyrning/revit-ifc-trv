@@ -256,43 +256,44 @@ namespace Revit.IFC.Export.Utility
 
          int sz = realList.Count;
 
-         if (sz == 3)
-         {
-            for (int ii = 0; ii < 3; ii++)
-            {
-               if (MathUtil.IsAlmostEqual(cleanList[ii], 1.0))
-               {
-                  if (!MathUtil.IsAlmostZero(cleanList[(ii + 1) % 3]) || !MathUtil.IsAlmostZero(cleanList[(ii + 2) % 3]))
-                     break;
-                  return ExporterIFCUtils.GetGlobal3DDirectionHandle(ii, true);
-               }
-               else if (MathUtil.IsAlmostEqual(cleanList[ii], -1.0))
-               {
-                  if (!MathUtil.IsAlmostZero(cleanList[(ii + 1) % 3]) || !MathUtil.IsAlmostZero(cleanList[(ii + 2) % 3]))
-                     break;
-                  return ExporterIFCUtils.GetGlobal3DDirectionHandle(ii, false);
-               }
-            }
-         }
-         else if (sz == 2)
-         {
-            for (int ii = 0; ii < 2; ii++)
-            {
-               if (MathUtil.IsAlmostEqual(cleanList[ii], 1.0))
-               {
-                  if (!MathUtil.IsAlmostZero(cleanList[1 - ii]))
-                     break;
-                  return ExporterIFCUtils.GetGlobal2DDirectionHandle(ii, true);
-               }
-               else if (MathUtil.IsAlmostEqual(cleanList[ii], -1.0))
-               {
-                  if (!MathUtil.IsAlmostZero(cleanList[1 - ii]))
-                     break;
-                  return ExporterIFCUtils.GetGlobal2DDirectionHandle(ii, false);
-               }
-            }
-         }
-
+         // Note: GetGlobal3DDirectionHandle and GetGlobal2DDirectionHandle methods removed in Revit 2026 API
+         // Optimization disabled - will create direction handles directly instead
+         // if (sz == 3)
+         // {
+         //    for (int ii = 0; ii < 3; ii++)
+         //    {
+         //       if (MathUtil.IsAlmostEqual(cleanList[ii], 1.0))
+         //       {
+         //          if (!MathUtil.IsAlmostZero(cleanList[(ii + 1) % 3]) || !MathUtil.IsAlmostZero(cleanList[(ii + 2) % 3]))
+         //             break;
+         //          return ExporterIFCUtils.GetGlobal3DDirectionHandle(ii, true);
+         //       }
+         //       else if (MathUtil.IsAlmostEqual(cleanList[ii], -1.0))
+         //       {
+         //          if (!MathUtil.IsAlmostZero(cleanList[(ii + 1) % 3]) || !MathUtil.IsAlmostZero(cleanList[(ii + 2) % 3]))
+         //             break;
+         //          return ExporterIFCUtils.GetGlobal3DDirectionHandle(ii, false);
+         //       }
+         //    }
+         // }
+         // else if (sz == 2)
+         // {
+         //    for (int ii = 0; ii < 2; ii++)
+         //    {
+         //       if (MathUtil.IsAlmostEqual(cleanList[ii], 1.0))
+         //       {
+         //          if (!MathUtil.IsAlmostZero(cleanList[1 - ii]))
+         //             break;
+         //          return ExporterIFCUtils.GetGlobal2DDirectionHandle(ii, true);
+         //       }
+         //       else if (MathUtil.IsAlmostEqual(cleanList[ii], -1.0))
+         //       {
+         //          if (!MathUtil.IsAlmostZero(cleanList[1 - ii]))
+         //             break;
+         //          return ExporterIFCUtils.GetGlobal2DDirectionHandle(ii, false);
+         //       }
+         //    }
+         // }
          IFCAnyHandle directionHandle = IFCInstanceExporter.CreateDirection(file, cleanList);
          return directionHandle;
       }
@@ -396,7 +397,10 @@ namespace Revit.IFC.Export.Utility
          {
             if (measure.Count == 2)
             {
-               return ExporterIFCUtils.GetGlobal2DOriginHandle();
+               // Note: GetGlobal2DOriginHandle removed in Revit 2026 API - create directly instead
+               // return ExporterIFCUtils.GetGlobal2DOriginHandle();
+               IFCAnyHandle originHandle = IFCInstanceExporter.CreateCartesianPoint(file, cleanMeasure);
+               return originHandle;
             }
             if (measure.Count == 3 && MathUtil.IsAlmostZero(cleanMeasure[2]))
             {
@@ -478,7 +482,9 @@ namespace Revit.IFC.Export.Utility
       /// <returns>The handle.</returns>
       public static IFCAnyHandle CreateAxis2Placement3D(IFCFile file)
       {
-         return CreateAxis2Placement3D(file, null);
+         // Location is required for IfcAxis2Placement3D - use default origin (0,0,0) if not provided
+         XYZ defaultOrigin = new XYZ(0.0, 0.0, 0.0);
+         return CreateAxis2Placement3D(file, defaultOrigin, null, null);
       }
 
       /// <summary>
@@ -3069,6 +3075,19 @@ namespace Revit.IFC.Export.Utility
          }
 
          XYZ yDirection = zDirection.CrossProduct(xDirection);
+         
+         // Check if pos handle is valid before reading Coordinates
+         if (IFCAnyHandleUtil.IsNullOrHasNoValue(pos) || !IFCAnyHandleUtil.IsTypeOf(pos, IFCEntityType.IfcCartesianPoint))
+         {
+            // If position is invalid, return identity transform with default origin
+            Transform invalidPosTransform = Transform.Identity;
+            invalidPosTransform.BasisX = xDirection;
+            invalidPosTransform.BasisY = yDirection;
+            invalidPosTransform.BasisZ = zDirection;
+            invalidPosTransform.Origin = XYZ.Zero;
+            return invalidPosTransform;
+         }
+         
          IList<double> posCoords = IFCAnyHandleUtil.GetAggregateDoubleAttribute<List<double>>(pos, "Coordinates");
          XYZ position = new(posCoords[0], posCoords[1], posCoords[2]);
 
@@ -3097,13 +3116,19 @@ namespace Revit.IFC.Export.Utility
             return totalTrf;
 
          totalTrf = GetTransformFromLocalPlacementHnd(localPlacementHnd, false);
+         if (totalTrf == null)
+            return Transform.Identity;  // If transform is null, return identity instead of null
 
          IFCAnyHandle placementRelTo = IFCAnyHandleUtil.GetInstanceAttribute(localPlacementHnd, "PlacementRelTo");
          while (!IFCAnyHandleUtil.IsNullOrHasNoValue(placementRelTo))
          {
+            // Validate that placementRelTo is a valid IfcLocalPlacement before processing
+            if (!placementRelTo.IsTypeOf("IfcLocalPlacement"))
+               break;  // Stop recursion if placementRelTo is not IfcLocalPlacement
+            
             Transform trf = GetTransformFromLocalPlacementHnd(placementRelTo, false);
             if (trf == null)
-               return null;        // the placementRelTo is not the type of IfcLocalPlacement, return null. We don't handle this
+               break;  // Stop recursion if transform is null instead of returning null
 
             totalTrf = trf.Multiply(totalTrf);
             placementRelTo = IFCAnyHandleUtil.GetInstanceAttribute(placementRelTo, "PlacementRelTo");
